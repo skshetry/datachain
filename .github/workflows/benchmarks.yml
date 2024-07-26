@@ -29,5 +29,9 @@ jobs:
 
       - run: uv pip install dvc[gs] --system
       - run: dvc --cd tests/benchmarks/datasets pull
+      - run: uv pip install ".[dev]" --system pytest-codspeed
       - name: Run benchmarks
-        run: nox -s bench
+        uses: CodSpeedHQ/action@v2
+        with:
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          run: pytest -m benchmark tests/ --codspeed

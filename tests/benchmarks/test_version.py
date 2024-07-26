@@ -1,2 +1,8 @@
-def test_version(bench_datachain):
-    bench_datachain("--help", rounds=100)
+import subprocess
+
+import pytest
+
+
+@pytest.mark.benchmark
+def test_help(tmp_dir, benchmark):
+    assert benchmark(subprocess.check_call, ["datachain", "--help"]) == 0
