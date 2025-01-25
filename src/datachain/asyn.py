@@ -1,4 +1,5 @@
 import asyncio
+import sys
 import threading
 from collections.abc import (
     AsyncIterable,
@@ -128,6 +129,9 @@ class AsyncMapper(Generic[InputT, ResultT]):
             self.gather_exceptions(done)
             assert join.done()
         except:
+            with open("error.txt", "w") as f:
+                f.write(repr(sys.exc_info()))
+                f.flush()
             await self.cancel_all()
             await self._break_iteration()
             raise

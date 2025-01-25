@@ -1507,6 +1507,7 @@ class Catalog:
             popen_kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT}
 
         with subprocess.Popen(cmd, env=env, **popen_kwargs) as proc:  # noqa: S603
+            logger.info(f"Running query script with PID {proc.pid}")
             if capture_output:
                 args = (proc.stdout, output_hook)
                 thread = Thread(target=_process_stream, args=args, daemon=True)

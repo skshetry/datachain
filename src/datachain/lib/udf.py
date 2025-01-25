@@ -380,13 +380,20 @@ class Mapper(UDFBase):
             download_cb=download_cb,
             remove_prefetched=bool(self.prefetch) and not cache,
         )
+        print(repr(processed_cb))
 
         with closing(prepared_inputs):
             for id_, *udf_args in prepared_inputs:
                 result_objs = self.process_safe(udf_args)
                 udf_output = self._flatten_row(result_objs)
                 output = [{"sys__id": id_} | dict(zip(self.signal_names, udf_output))]
-                processed_cb.relative_update(1)
+                try:
+                    processed_cb.relative_update(1)
+                except Exception:
+                    with open("error.txt", "w") as f:
+                        f.write(repr(sys.exc_info()))
+                        f.flush()
+                    raise
                 yield output
 
         self.teardown()
