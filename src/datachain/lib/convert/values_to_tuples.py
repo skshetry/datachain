@@ -1,3 +1,4 @@
+import itertools
 from collections.abc import Sequence
 from typing import Any, Union
 
@@ -69,16 +70,25 @@ def values_to_tuples(  # noqa: C901, PLR0912
             if len_ == 0:
                 raise ValuesToTupleError(ds_name, f"signal '{k}' is empty list")
 
-            first_element = next(iter(v))
-            typ = type(first_element)
+            try:
+                # find the first element that is not None
+                first_not_none_element = next(
+                    itertools.dropwhile(lambda x: x is None, v)
+                )
+            except StopIteration:
+                # if all the elements are None, default to str type
+                types_map[k] = str
+                continue
+
+            typ = type(first_not_none_element)
             if not is_chain_type(typ):
                 raise ValuesToTupleError(
                     ds_name,
                     f"signal '{k}' has unsupported type '{typ.__name__}'."
                     f" Please use DataModel types: {DataTypeNames}",
                 )
-            if isinstance(first_element, list):
-                types_map[k] = list[type(first_element[0])]  # type: ignore[assignment, misc]
+            if isinstance(first_not_none_element, list):
+                types_map[k] = list[type(first_not_none_element[0])]  # type: ignore[assignment, misc]
             else:
                 types_map[k] = typ
 

@@ -35,35 +35,30 @@ ConnectionType = Union[
 
 
 @contextlib.contextmanager
-def _execute(
-    query: QueryType,
+def _connect(
     connection: ConnectionType,
-    params: Union["Sequence[Mapping[str, Any]]", "Mapping[str, Any]", None] = None,
-) -> "Iterator[sqlalchemy.Result]":
+) -> "Iterator[Union[sqlalchemy.engine.Connection, SQLAlchemySession]]":
+    import sqlalchemy.orm
+
     with contextlib.ExitStack() as stack:
         engine_kwargs = {"echo": bool(os.environ.get("DEBUG_SHOW_SQL_QUERIES"))}
         if isinstance(connection, (str, sqlalchemy.URL)):
             engine = sqlalchemy.create_engine(connection, **engine_kwargs)
             stack.callback(engine.dispose)
-            connection = stack.enter_context(engine.connect())
-        elif isinstance(connection, sqlalchemy.Engine):
-            connection = stack.enter_context(connection.connect())
+            yield stack.enter_context(engine.connect())
         elif isinstance(connection, sqlite3.Connection):
             engine = sqlalchemy.create_engine(
                 "sqlite://", creator=lambda: connection, **engine_kwargs
             )
-            connection = engine.connect()
-
-        if isinstance(query, str):
-            query = sqlalchemy.text(query)
-        execution_options = {"stream_results": True}  # use server-side cursors
-        result = connection.execute(  # type: ignore[union-attr]
-            query,  # type: ignore[arg-type]
-            params,
-            execution_options=execution_options,
-        )
-        stack.enter_context(result)
-        yield result
+            # do not close the connection, as it is managed by the caller
+            yield engine.connect()
+        elif isinstance(connection, sqlalchemy.Engine):
+            yield stack.enter_context(connection.connect())
+        elif isinstance(connection, (sqlalchemy.Connection, sqlalchemy.orm.Session)):
+            # do not close the connection, as it is managed by the caller
+            yield connection
+        else:
+            raise TypeError(f"Unsupported connection type: {type(connection).__name__}")
 
 
 def read_database(
@@ -72,9 +67,10 @@ def read_database(
     params: Union["Sequence[Mapping[str, Any]]", "Mapping[str, Any]", None] = None,
     *,
     output: Optional["OutputType"] = None,
-    in_memory: bool = False,
     session: Optional["Session"] = None,
     settings: Optional[dict] = None,
+    in_memory: bool = False,
+    infer_schema_length: int = 100,
 ) -> "DataChain":
     """
     Generate chain from the database query.
@@ -100,17 +96,17 @@ def read_database(
     from datachain.lib.convert.values_to_tuples import values_to_tuples
     from datachain.lib.dc.records import read_records
 
-    with _execute(query, connection, params) as result:
-        # use first row to infer schema
-        if first_row := result.fetchone():
-            _, output, _ = values_to_tuples(
-                "",
-                output,
-                **{col: [v] for col, v in first_row._mapping.items()},
-            )
-            result = itertools.chain([first_row], result)  # type: ignore[assignment]
+    if isinstance(query, str):
+        query = sqlalchemy.text(query)
+    kw = {"execution_options": {"stream_results": True}}  # use server-side cursors
+    with _connect(connection) as conn, conn.execute(query, params, **kw) as result:  # type: ignore[arg-type, union-attr]
+        rows = list(itertools.islice(result, infer_schema_length))
+        cols = result.keys()
+        if rows:
+            values = {col: [row[idx] for row in rows] for idx, col in enumerate(cols)}
+            _, output, _ = values_to_tuples("", output, **values)
 
-        # TODO: How to make this lazy
+        result = itertools.chain(rows, result)  # type: ignore[assignment]
         return read_records(
             (row._asdict() for row in result),
             session=session,
