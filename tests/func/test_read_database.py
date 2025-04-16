@@ -65,9 +65,16 @@ def connection(request):
 def test(sqlite3_connection, connection, test_session):
     sqlite3_connection.execute("CREATE TABLE tbl (id INTEGER PRIMARY KEY, value TEXT)")
     sqlite3_connection.executemany(
-        "INSERT INTO tbl(value) VALUES(?)", [(str(i),) for i in range(1, 5)]
+        "INSERT INTO tbl(value) VALUES(?)", [(str(i),) for i in range(1, 1000)]
     )
     sqlite3_connection.commit()
 
-    chain = read_database("select * from tbl", connection, session=test_session)
-    assert chain.to_records() == [{"id": i, "value": str(i)} for i in range(1, 5)]
+    chain = read_database(
+        "select * from tbl where id > :val",
+        connection,
+        params={"val": 100},
+        session=test_session,
+    )
+    assert sorted(chain.to_records(), key=lambda r: r["id"]) == [
+        {"id": i, "value": str(i)} for i in range(101, 1000)
+    ]

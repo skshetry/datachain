@@ -2,12 +2,12 @@ import contextlib
 import itertools
 import os
 import sqlite3
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import sqlalchemy
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
 
     from sqlalchemy.orm import FromStatement
     from sqlalchemy.orm import Session as SQLAlchemySession
@@ -18,23 +18,27 @@ if TYPE_CHECKING:
     from .datachain import DataChain
 
 
+QueryType = Union[
+    str,
+    "sqlalchemy.TextClause",
+    "sqlalchemy.Selectable",
+    "sqlalchemy.Select",
+    "FromStatement",
+]
+ConnectionType = Union[
+    str,
+    "sqlalchemy.URL",
+    "sqlalchemy.engine.Connectable",
+    "sqlite3.Connection",
+    "SQLAlchemySession",
+]
+
+
 @contextlib.contextmanager
 def _execute(
-    query: Union[
-        str,
-        "sqlalchemy.TextClause",
-        "sqlalchemy.Selectable",
-        "sqlalchemy.Select",
-        "FromStatement",
-    ],
-    connection: Union[
-        str,
-        "sqlalchemy.URL",
-        "sqlalchemy.engine.Connectable",
-        "sqlite3.Connection",
-        "SQLAlchemySession",
-    ],
-    params: Union["Sequence", dict] = (),
+    query: QueryType,
+    connection: ConnectionType,
+    params: Union["Sequence[Mapping[str, Any]]", "Mapping[str, Any]", None] = None,
 ) -> "Iterator[sqlalchemy.Result]":
     with contextlib.ExitStack() as stack:
         engine_kwargs = {"echo": bool(os.environ.get("DEBUG_SHOW_SQL_QUERIES"))}
@@ -55,7 +59,7 @@ def _execute(
         execution_options = {"stream_results": True}  # use server-side cursors
         result = connection.execute(  # type: ignore[union-attr]
             query,  # type: ignore[arg-type]
-            *(params or ()),
+            params,
             execution_options=execution_options,
         )
         stack.enter_context(result)
@@ -63,27 +67,14 @@ def _execute(
 
 
 def read_database(
-    query: Union[
-        str,
-        "sqlalchemy.TextClause",
-        "sqlalchemy.Selectable",
-        "sqlalchemy.Select",
-        "FromStatement",
-    ],
-    connection: Union[
-        str,
-        "sqlalchemy.URL",
-        "sqlalchemy.engine.Connectable",
-        "sqlite3.Connection",
-        "SQLAlchemySession",
-    ],
-    session: Optional["Session"] = None,
-    settings: Optional[dict] = None,
-    in_memory: bool = False,
-    ds_name: str = "",
+    query: QueryType,
+    connection: ConnectionType,
+    params: Union["Sequence[Mapping[str, Any]]", "Mapping[str, Any]", None] = None,
     *,
     output: Optional["OutputType"] = None,
-    params: Union["Sequence", dict] = (),
+    in_memory: bool = False,
+    session: Optional["Session"] = None,
+    settings: Optional[dict] = None,
 ) -> "DataChain":
     """
     Generate chain from the database query.
@@ -113,7 +104,7 @@ def read_database(
         # use first row to infer schema
         if first_row := result.fetchone():
             _, output, _ = values_to_tuples(
-                ds_name,
+                "",
                 output,
                 **{col: [v] for col, v in first_row._mapping.items()},
             )
